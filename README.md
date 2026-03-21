@@ -38,4 +38,3 @@ The image manages `AGENTS.md` and `skills/` itself and recreates them inside `/h
 - Brave Search: get API key from https://api-dashboard.search.brave.com/app/keys.
 - Transcribe: get API key from https://console.groq.com/keys
 - Browser Tools: see chrome/
-# agent
