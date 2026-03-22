@@ -4,13 +4,6 @@ ARG PI_VERSION=0.61.1
 
 WORKDIR /workspace
 
-USER root
-
-# Install sudo and grant node user passwordless sudo
-RUN apt-get update && apt-get install -y sudo \
-    && echo "node ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/node \
-    && chmod 0440 /etc/sudoers.d/node
-
 USER node
 
 ENV HOME=/home/node
