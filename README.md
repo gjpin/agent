@@ -53,6 +53,32 @@ tee ${HOME}/.pi/agent/auth.json << 'EOF'
 EOF
 
 chmod 0600 ${HOME}/.pi/agent/auth.json
+
+tee ${HOME}/.pi/agent/models.json << 'EOF'
+{
+  "providers": {
+    "llama.cpp": {
+      "baseUrl": "http://host.containers.internal:8080/v1",
+      "api": "openai-completions",
+      "apiKey": "llama.cpp",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "Qwen3.5-35B-A3B-heretic-Opus-4.6-Distilled.i1-Q4_K_M.gguf",
+          "name": "Qwen3.5-35B-A3B Opus (Local)",
+          "reasoning": true,
+          "contextWindow": 65536,
+          "input": ["text"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}
+EOF
 ```
 
 # Skills
