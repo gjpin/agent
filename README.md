@@ -6,8 +6,13 @@ podman build --build-arg PI_VERSION=0.61.1 -t pi-agent .
 
 # Alias
 ```bash
+# Brave search skill
 BRAVE_API_KEY=
+
+# Transcribe skill
 GROQ_API_KEY=
+
+# Providers
 OPENROUTER_API_KEY=
 OPENCODE_API_KEY=
 MISTRAL_API_KEY=
@@ -87,7 +92,10 @@ Some skills require additional setup. Generally, the agent will walk you through
 brew install node
 npm config set ignore-scripts true
 
-# Skills
+# Copy skills
+cp -R skills ~/.pi/agent
+
+# Install skills dependencies
 for dir in ~/.pi/agent/skills/*/; do \
     if [ -f "$dir/package.json" ]; then \
     echo "Installing dependencies in $dir" && \
