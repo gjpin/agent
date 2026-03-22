@@ -9,7 +9,7 @@ mkdir -p "/Applications/Chrome Debugger.app/Contents/MacOS"
 
 tee "/Applications/Chrome Debugger.app/Contents/MacOS/Chrome Debugger" << EOF
 #!/usr/bin/env bash
-exec arch -arm64 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222
+exec "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debugger --no-first-run --no-default-browser-check
 EOF
 
 chmod +x "/Applications/Chrome Debugger.app/Contents/MacOS/Chrome Debugger"

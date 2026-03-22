@@ -2,6 +2,7 @@
 - Do NOT start implementing, designing or modifying code unless explicitely asked
 - When user mentions an issue or topic, just summarize/discuss it - don't jump into action
 - Wait for explicit instructions like "implement this", "fix this", "create this"
+- You are running inside a podman container and running in Debian/node image. Install packages if required to perform your tasks.
 
 # Additional tools
 There are additional command line tools you can use in ~/.pi/agent/skills. To use the tools, read the README.md file in the respective sub directory:

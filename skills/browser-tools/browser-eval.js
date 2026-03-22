@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import puppeteer from "puppeteer-core";
+import { getBrowserUrl } from "./browser-host.js";
 
 const code = process.argv.slice(2).join(" ");
 if (!code) {
@@ -13,7 +14,7 @@ if (!code) {
 
 const b = await Promise.race([
   puppeteer.connect({
-    browserURL: "http://host.containers.internal:9222",
+    browserURL: getBrowserUrl(),
     defaultViewport: null,
   }),
   new Promise((_, reject) =>
@@ -21,7 +22,6 @@ const b = await Promise.race([
   ),
 ]).catch((e) => {
   console.error("✗ Could not connect to browser:", e.message);
-  console.error("  Run: browser-start.js");
   process.exit(1);
 });
 
