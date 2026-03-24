@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "network": {
+    "allowedDomains": ["*"],
+    "deniedDomains": []
+  },
+  "filesystem": {
+    "denyRead": ["~/.ssh", "~/.zshrc.d"],
+    "allowRead": [".", "~/src", "~/.pi", "~/.ssh/known_hosts"],
+    "allowWrite": [".", "/tmp"],
+    "denyWrite": [".env", ".env.*", "*.pem", "*.key", "~/.pi"]
+  }
+}

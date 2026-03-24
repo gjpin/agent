@@ -5,25 +5,10 @@ description: Interactive browser automation via Chrome DevTools Protocol. Use wh
 
 # Browser Tools
 
-Chrome DevTools Protocol tools for agent-assisted web automation. These tools connect to Chrome running on `:9222` with remote debugging enabled.
+Chrome DevTools Protocol tools for agent-assisted web automation. These tools connect to Chrome running on port `:9222` with remote debugging enabled. The host address is resolved dynamically using `getent hosts host.containers.internal` to support various container environments.
 
-## Setup
-
-Run once before first use:
-
-```bash
-cd {baseDir}/browser-tools
-npm install
-```
-
-## Start Chrome
-
-```bash
-{baseDir}/browser-start.js              # Fresh profile
-{baseDir}/browser-start.js --profile    # Copy user's profile (cookies, logins)
-```
-
-Launch Chrome with remote debugging on `:9222`. Use `--profile` to preserve user's authentication state.
+## On error
+**IMPORTANT**: if you cannot connect to the browser with an error message similar to: "Could not connect to browser: Failed to fetch browser webSocket URL from http://ip:9222/json/version: fetch failed" then stop and tell the user.
 
 ## Navigate
 
