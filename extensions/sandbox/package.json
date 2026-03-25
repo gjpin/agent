@@ -3,11 +3,7 @@
   "private": true,
   "version": "0.3.0",
   "type": "module",
-  "scripts": {
-    "clean": "echo 'nothing to clean'",
-    "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
-  },
+  "scripts": {},
   "pi": {
     "extensions": [
       "./index.ts"

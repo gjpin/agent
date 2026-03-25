@@ -26,6 +26,8 @@ done && npm cache clean --force
 ## Configure credentials, local models, agents
 ```bash
 export BRAVE_API_KEY=
+export LINKUP_API_KEY=
+export EXA_API_KEY=
 export GROQ_API_KEY=
 export MISTRAL_API_KEY=
 export OPENROUTER_API_KEY=

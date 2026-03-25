@@ -1,5 +1,7 @@
-# Brave search skill
+# Web search skill
 export BRAVE_API_KEY=${BRAVE_API_KEY}
+export LINKUP_API_KEY=${LINKUP_API_KEY}
+export EXA_API_KEY=${EXA_API_KEY}
 
 # Provider and Transcribe skill
 export GROQ_API_KEY=${GROQ_API_KEY}

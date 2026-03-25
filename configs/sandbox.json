@@ -1,13 +1,13 @@
 {
   "enabled": true,
   "network": {
-    "allowedDomains": ["*"],
+    "allowedDomains": ["*.com", "*.dev", "*.io"],
     "deniedDomains": []
   },
   "filesystem": {
-    "denyRead": ["~/.ssh", "~/.zshrc.d"],
-    "allowRead": [".", "~/src", "~/.pi", "~/.ssh/known_hosts"],
+    "allowRead": [".", "~/src"],
     "allowWrite": [".", "/tmp"],
-    "denyWrite": [".env", ".env.*", "*.pem", "*.key", "~/.pi"]
+    "denyRead": ["~/.ssh", "~/.zshrc.d", "~/Sync", "~/Documents", "~/Downloads"],
+    "denyWrite": [".env", ".env.*", "*.pem", "*.key", "~/.pi", ".pi", "sandbox.json"]
   }
 }

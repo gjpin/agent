@@ -11,6 +11,7 @@ A collection of skills for [pi-coding-agent](https://github.com/badlogic/pi-mono
 | [transcribe](transcribe/SKILL.md) | Speech-to-text transcription via Groq Whisper API |
 | [vscode](vscode/SKILL.md) | VS Code integration for diffs and file comparison |
 | [youtube-transcript](youtube-transcript/SKILL.md) | Fetch YouTube video transcripts |
+| [zed](zed/SKILL.md) | Zed integration for diffs and file comparison |
 
 ## Skill Format
 
@@ -39,6 +40,7 @@ Some skills require additional setup. Generally, the agent will walk you through
 - **transcribe**: Requires curl and a Groq API key.
 - **vscode**: Requires VS Code with `code` CLI in PATH.
 - **youtube-transcript**: Requires Node.js. Run `npm install` in the skill directory.
+- **zed**: Requires Zed with `zed` CLI in PATH.
 
 ## License
 

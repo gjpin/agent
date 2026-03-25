@@ -3,18 +3,29 @@
  * by Mario Zechner and https://github.com/carderne/pi-sandbox/blob/main/index.ts by Chris Arderne, used under the MIT License.
  *
  * Sandbox Extension - OS-level sandboxing for bash commands, plus path policy
- * enforcement for pi's read/write/edit tools.
+ * enforcement for pi's read/write/edit tools, with interactive permission prompts.
  *
- * Uses @anthropic-ai/sandbox-runtime to enforce filesystem and network
+ * Uses @carderne/sandbox-runtime to enforce filesystem and network
  * restrictions on bash commands at the OS level (sandbox-exec on macOS,
  * bubblewrap on Linux). Also intercepts the read, write, and edit tools to
  * apply the same denyRead/denyWrite/allowWrite filesystem rules, which OS-level
  * sandboxing cannot cover (those tools run directly in Node.js, not in a
  * subprocess).
  *
- * This extension uses a STATIC configuration model — the agent cannot modify
- * the sandbox configuration at runtime. All path/domain policies are enforced
- * strictly according to the config files.
+ * When a block is triggered, the user is prompted to:
+ *   (a) Abort (keep blocked)
+ *   (b) Allow for this session only  — stored in memory, agent cannot access
+ *   (c) Allow for this project       — written to .pi/sandbox.json
+ *   (d) Allow for all projects       — written to ~/.pi/agent/sandbox.json
+ *
+ * What gets prompted vs. hard-blocked:
+ *   - domains: prompted if not whitelisted nor explicitly denied
+ *   - write: prompted if not whitelisted nor explicitly denied
+ *   - read: always prompted (because denyRead is used for broad block, may want to punch holes)
+ *
+ * IMPORTANT — precedence for read:
+ *   Read:  allowRead OVERRIDES denyRead (prompt grant adds to allowRead)
+ *   Write: denyWrite OVERRIDES allowWrite (most-specific deny wins)
  *
  * Config files (merged, project takes precedence):
  * - ~/.pi/agent/sandbox.json (global)
@@ -50,17 +61,11 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import {
-  SandboxManager,
-  type SandboxRuntimeConfig,
-} from "@anthropic-ai/sandbox-runtime";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+import { dirname, join, resolve } from "node:path";
+import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
   type BashOperations,
   createBashTool,
@@ -122,10 +127,7 @@ function loadConfig(cwd: string): SandboxConfig {
   return deepMerge(deepMerge(DEFAULT_CONFIG, globalConfig), projectConfig);
 }
 
-function deepMerge(
-  base: SandboxConfig,
-  overrides: Partial<SandboxConfig>,
-): SandboxConfig {
+function deepMerge(base: SandboxConfig, overrides: Partial<SandboxConfig>): SandboxConfig {
   const result: SandboxConfig = { ...base };
 
   if (overrides.enabled !== undefined) result.enabled = overrides.enabled;
@@ -151,8 +153,7 @@ function deepMerge(
     extResult.ignoreViolations = extOverrides.ignoreViolations;
   }
   if (extOverrides.enableWeakerNestedSandbox !== undefined) {
-    extResult.enableWeakerNestedSandbox =
-      extOverrides.enableWeakerNestedSandbox;
+    extResult.enableWeakerNestedSandbox = extOverrides.enableWeakerNestedSandbox;
   }
   if (extOverrides.allowBrowserProcess !== undefined) {
     extResult.allowBrowserProcess = extOverrides.allowBrowserProcess;
@@ -185,6 +186,14 @@ function domainIsAllowed(domain: string, allowedDomains: string[]): boolean {
   return allowedDomains.some((p) => domainMatchesPattern(domain, p));
 }
 
+// ── Output analysis ───────────────────────────────────────────────────────────
+
+/** Extract a path from a bash "Operation not permitted" OS sandbox error. */
+function extractBlockedWritePath(output: string): string | null {
+  const match = output.match(/(?:\/bin\/bash|bash|sh): (\/[^\s:]+): Operation not permitted/);
+  return match ? match[1] : null;
+}
+
 // ── Path pattern matching ─────────────────────────────────────────────────────
 
 function matchesPattern(filePath: string, patterns: string[]): boolean {
@@ -194,16 +203,82 @@ function matchesPattern(filePath: string, patterns: string[]): boolean {
     const expandedP = p.replace(/^~/, homedir());
     const absP = resolve(expandedP);
     if (p.includes("*")) {
-      const escaped = absP
-        .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-        .replace(/\*/g, ".*");
+      const escaped = absP.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
       return new RegExp(`^${escaped}$`).test(abs);
     }
     return abs === absP || abs.startsWith(absP + "/");
   });
 }
 
-// ── Sandboxed bash ops ───────────────────────────────────────────────────────
+// ── Config file updaters (Node.js process — not OS-sandboxed) ─────────────────
+
+function getConfigPaths(cwd: string): {
+  globalPath: string;
+  projectPath: string;
+} {
+  return {
+    globalPath: join(homedir(), ".pi", "agent", "sandbox.json"),
+    projectPath: join(cwd, ".pi", "sandbox.json"),
+  };
+}
+
+function readOrEmptyConfig(configPath: string): Partial<SandboxConfig> {
+  if (!existsSync(configPath)) return {};
+  try {
+    return JSON.parse(readFileSync(configPath, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeConfigFile(configPath: string, config: Partial<SandboxConfig>): void {
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+}
+
+function addDomainToConfig(configPath: string, domain: string): void {
+  const config = readOrEmptyConfig(configPath);
+  const existing = config.network?.allowedDomains ?? [];
+  if (!existing.includes(domain)) {
+    config.network = {
+      ...config.network,
+      allowedDomains: [...existing, domain],
+      deniedDomains: config.network?.deniedDomains ?? [],
+    };
+    writeConfigFile(configPath, config);
+  }
+}
+
+function addReadPathToConfig(configPath: string, pathToAdd: string): void {
+  const config = readOrEmptyConfig(configPath);
+  const existing = config.filesystem?.allowRead ?? [];
+  if (!existing.includes(pathToAdd)) {
+    config.filesystem = {
+      ...config.filesystem,
+      allowRead: [...existing, pathToAdd],
+      denyRead: config.filesystem?.denyRead ?? [],
+      allowWrite: config.filesystem?.allowWrite ?? [],
+      denyWrite: config.filesystem?.denyWrite ?? [],
+    };
+    writeConfigFile(configPath, config);
+  }
+}
+
+function addWritePathToConfig(configPath: string, pathToAdd: string): void {
+  const config = readOrEmptyConfig(configPath);
+  const existing = config.filesystem?.allowWrite ?? [];
+  if (!existing.includes(pathToAdd)) {
+    config.filesystem = {
+      ...config.filesystem,
+      allowWrite: [...existing, pathToAdd],
+      denyRead: config.filesystem?.denyRead ?? [],
+      denyWrite: config.filesystem?.denyWrite ?? [],
+    };
+    writeConfigFile(configPath, config);
+  }
+}
+
+// ── Sandboxed bash ops ────────────────────────────────────────────────────────
 
 function createSandboxedBashOps(): BashOperations {
   return {
@@ -290,19 +365,209 @@ export default function (pi: ExtensionAPI) {
   let sandboxEnabled = false;
   let sandboxInitialized = false;
 
-  // ── Bash tool — with sandbox enforcement ──────────────────────────────────
+  // Session-temporary allowances — held in JS memory, not accessible by the agent.
+  // These are added on top of whatever is in the config files.
+  const sessionAllowedDomains: string[] = [];
+  const sessionAllowedReadPaths: string[] = [];
+  const sessionAllowedWritePaths: string[] = [];
+
+  // ── Effective config helpers ────────────────────────────────────────────────
+
+  function getEffectiveAllowedDomains(cwd: string): string[] {
+    const config = loadConfig(cwd);
+    return [...(config.network?.allowedDomains ?? []), ...sessionAllowedDomains];
+  }
+
+  function getEffectiveAllowRead(cwd: string): string[] {
+    const config = loadConfig(cwd);
+    return [...(config.filesystem?.allowRead ?? []), ...sessionAllowedReadPaths];
+  }
+
+  function getEffectiveAllowWrite(cwd: string): string[] {
+    const config = loadConfig(cwd);
+    return [...(config.filesystem?.allowWrite ?? []), ...sessionAllowedWritePaths];
+  }
+
+  // ── Sandbox reinitialize ────────────────────────────────────────────────────
+  // Called after granting a session/permanent allowance so the OS-level sandbox
+  // picks up the new rules before the next bash subprocess starts.
+
+  async function reinitializeSandbox(cwd: string): Promise<void> {
+    if (!sandboxInitialized) return;
+    const config = loadConfig(cwd);
+    const configExt = config as unknown as { allowBrowserProcess?: boolean };
+    try {
+      await SandboxManager.reset();
+      await SandboxManager.initialize({
+        network: {
+          ...config.network,
+          allowedDomains: [...(config.network?.allowedDomains ?? []), ...sessionAllowedDomains],
+          deniedDomains: config.network?.deniedDomains ?? [],
+        },
+        filesystem: {
+          ...config.filesystem,
+          denyRead: config.filesystem?.denyRead ?? [],
+          allowRead: config.filesystem?.allowRead ?? [],
+          allowWrite: [...(config.filesystem?.allowWrite ?? []), ...sessionAllowedWritePaths],
+          denyWrite: config.filesystem?.denyWrite ?? [],
+        },
+        allowBrowserProcess: configExt.allowBrowserProcess,
+        enableWeakerNetworkIsolation: true,
+      });
+    } catch (e) {
+      console.error(`Warning: Failed to reinitialize sandbox: ${e}`);
+    }
+  }
+
+  // ── UI prompts ──────────────────────────────────────────────────────────────
+
+  async function promptDomainBlock(
+    ctx: ExtensionContext,
+    domain: string,
+  ): Promise<"abort" | "session" | "project" | "global"> {
+    if (!ctx.hasUI) return "abort";
+    const choice = await ctx.ui.select(`🌐 Network blocked: "${domain}" is not in allowedDomains`, [
+      "Abort (keep blocked)",
+      "Allow for this session only",
+      "Allow for this project  →  .pi/sandbox.json",
+      "Allow for all projects  →  ~/.pi/agent/sandbox.json",
+    ]);
+    if (!choice || choice.startsWith("Abort")) return "abort";
+    if (choice.startsWith("Allow for this session")) return "session";
+    if (choice.startsWith("Allow for this project")) return "project";
+    return "global";
+  }
+
+  async function promptReadBlock(
+    ctx: ExtensionContext,
+    filePath: string,
+  ): Promise<"abort" | "session" | "project" | "global"> {
+    if (!ctx.hasUI) return "abort";
+    const choice = await ctx.ui.select(`📖 Read blocked: "${filePath}" is not in allowRead`, [
+      "Abort (keep blocked)",
+      "Allow for this session only",
+      "Allow for this project  →  .pi/sandbox.json",
+      "Allow for all projects  →  ~/.pi/agent/sandbox.json",
+    ]);
+    if (!choice || choice.startsWith("Abort")) return "abort";
+    if (choice.startsWith("Allow for this session")) return "session";
+    if (choice.startsWith("Allow for this project")) return "project";
+    return "global";
+  }
+
+  async function promptWriteBlock(
+    ctx: ExtensionContext,
+    filePath: string,
+  ): Promise<"abort" | "session" | "project" | "global"> {
+    if (!ctx.hasUI) return "abort";
+    const choice = await ctx.ui.select(`📝 Write blocked: "${filePath}" is not in allowWrite`, [
+      "Abort (keep blocked)",
+      "Allow for this session only",
+      "Allow for this project  →  .pi/sandbox.json",
+      "Allow for all projects  →  ~/.pi/agent/sandbox.json",
+    ]);
+    if (!choice || choice.startsWith("Abort")) return "abort";
+    if (choice.startsWith("Allow for this session")) return "session";
+    if (choice.startsWith("Allow for this project")) return "project";
+    return "global";
+  }
+
+  // ── Apply allowance choices ─────────────────────────────────────────────────
+
+  async function applyDomainChoice(
+    choice: "session" | "project" | "global",
+    domain: string,
+    cwd: string,
+  ): Promise<void> {
+    const { globalPath, projectPath } = getConfigPaths(cwd);
+    if (!sessionAllowedDomains.includes(domain)) sessionAllowedDomains.push(domain);
+    if (choice === "project") addDomainToConfig(projectPath, domain);
+    if (choice === "global") addDomainToConfig(globalPath, domain);
+    await reinitializeSandbox(cwd);
+  }
+
+  async function applyReadChoice(
+    choice: "session" | "project" | "global",
+    filePath: string,
+    cwd: string,
+  ): Promise<void> {
+    const { globalPath, projectPath } = getConfigPaths(cwd);
+    if (!sessionAllowedReadPaths.includes(filePath)) sessionAllowedReadPaths.push(filePath);
+    if (choice === "project") addReadPathToConfig(projectPath, filePath);
+    if (choice === "global") addReadPathToConfig(globalPath, filePath);
+    await reinitializeSandbox(cwd);
+  }
+
+  async function applyWriteChoice(
+    choice: "session" | "project" | "global",
+    filePath: string,
+    cwd: string,
+  ): Promise<void> {
+    const { globalPath, projectPath } = getConfigPaths(cwd);
+    if (!sessionAllowedWritePaths.includes(filePath)) sessionAllowedWritePaths.push(filePath);
+    if (choice === "project") addWritePathToConfig(projectPath, filePath);
+    if (choice === "global") addWritePathToConfig(globalPath, filePath);
+    await reinitializeSandbox(cwd);
+  }
+
+  // ── Bash tool — with write-block detection and retry ───────────────────────
 
   pi.registerTool({
     ...localBash,
     label: "bash (sandboxed)",
     async execute(id, params, signal, onUpdate, ctx) {
-      if (!sandboxEnabled || !sandboxInitialized) {
-        return localBash.execute(id, params, signal, onUpdate);
+      const runBash = () => {
+        if (!sandboxEnabled || !sandboxInitialized) {
+          return localBash.execute(id, params, signal, onUpdate);
+        }
+        const sandboxedBash = createBashTool(localCwd, {
+          operations: createSandboxedBashOps(),
+        });
+        return sandboxedBash.execute(id, params, signal, onUpdate);
+      };
+
+      const result = await runBash();
+
+      // Post-execution: detect OS-level write block and offer to allow.
+      if (sandboxEnabled && sandboxInitialized && ctx?.hasUI) {
+        const outputText = result.content
+          .filter((c: any) => c.type === "text")
+          .map((c: any) => c.text)
+          .join("\n");
+
+        const blockedPath = extractBlockedWritePath(outputText);
+        if (blockedPath) {
+          const choice = await promptWriteBlock(ctx, blockedPath);
+          if (choice !== "abort") {
+            await applyWriteChoice(choice, blockedPath, ctx.cwd);
+
+            // Check if denyWrite would still block it even after allowing.
+            const config = loadConfig(ctx.cwd);
+            const { projectPath, globalPath } = getConfigPaths(ctx.cwd);
+            if (matchesPattern(blockedPath, config.filesystem?.denyWrite ?? [])) {
+              ctx.ui.notify(
+                `⚠️ "${blockedPath}" was added to allowWrite, but it is also in denyWrite and will remain blocked.\n` +
+                  `Check denyWrite in:\n  ${projectPath}\n  ${globalPath}`,
+                "warning",
+              );
+              return result;
+            }
+
+            onUpdate?.({
+              content: [
+                {
+                  type: "text",
+                  text: `\n--- Write access granted for "${blockedPath}", retrying ---\n`,
+                },
+              ],
+              details: {},
+            });
+            return runBash();
+          }
+        }
       }
-      const sandboxedBash = createBashTool(localCwd, {
-        operations: createSandboxedBashOps(),
-      });
-      return sandboxedBash.execute(id, params, signal, onUpdate);
+
+      return result;
     },
   });
 
@@ -311,20 +576,23 @@ export default function (pi: ExtensionAPI) {
   pi.on("user_bash", async (event, ctx) => {
     if (!sandboxEnabled || !sandboxInitialized) return;
 
-    const config = loadConfig(ctx.cwd);
     const domains = extractDomainsFromCommand(event.command);
-    const allowedDomains = config.network?.allowedDomains ?? [];
+    const effectiveDomains = getEffectiveAllowedDomains(ctx.cwd);
 
     for (const domain of domains) {
-      if (!domainIsAllowed(domain, allowedDomains)) {
-        return {
-          result: {
-            output: `Blocked: "${domain}" is not in allowedDomains. Use /sandbox to review your config.`,
-            exitCode: 1,
-            cancelled: false,
-            truncated: false,
-          },
-        };
+      if (!domainIsAllowed(domain, effectiveDomains)) {
+        const choice = await promptDomainBlock(ctx, domain);
+        if (choice === "abort") {
+          return {
+            result: {
+              output: `Blocked: "${domain}" is not in allowedDomains. Use /sandbox to review your config.`,
+              exitCode: 1,
+              cancelled: false,
+              truncated: false,
+            },
+          };
+        }
+        await applyDomainChoice(choice, domain, ctx.cwd);
       }
     }
 
@@ -337,64 +605,89 @@ export default function (pi: ExtensionAPI) {
     const config = loadConfig(ctx.cwd);
     if (!config.enabled) return;
 
-    const globalPath = join(homedir(), ".pi", "agent", "sandbox.json");
-    const projectPath = join(ctx.cwd, ".pi", "sandbox.json");
+    const { projectPath, globalPath } = getConfigPaths(ctx.cwd);
 
     // Network pre-check for bash tool calls.
-    if (
-      sandboxEnabled &&
-      sandboxInitialized &&
-      isToolCallEventType("bash", event)
-    ) {
+    if (sandboxEnabled && sandboxInitialized && isToolCallEventType("bash", event)) {
       const domains = extractDomainsFromCommand(event.input.command);
-      const allowedDomains = config.network?.allowedDomains ?? [];
+      const effectiveDomains = getEffectiveAllowedDomains(ctx.cwd);
       for (const domain of domains) {
-        if (!domainIsAllowed(domain, allowedDomains)) {
-          return {
-            block: true,
-            reason: `Network access to "${domain}" is blocked (not in allowedDomains). To change this, edit allowedDomains in:\n  ${projectPath}\n  ${globalPath}`,
-          };
+        if (!domainIsAllowed(domain, effectiveDomains)) {
+          const choice = await promptDomainBlock(ctx, domain);
+          if (choice === "abort") {
+            return {
+              block: true,
+              reason: `Network access to "${domain}" is blocked (not in allowedDomains).`,
+            };
+          }
+          await applyDomainChoice(choice, domain, ctx.cwd);
         }
       }
     }
 
-    // Path policy: read tool — hard block if not in allowRead.
+    // Path policy: read tool.
+    //   - If the path is already in effectiveAllowRead, allow silently.
+    //   - Otherwise always prompt, regardless of denyRead.
+    //   - Granting (session or permanent) adds to allowRead, which overrides denyRead.
+    //   - denyRead is never a hard-block on its own — it just sets the default
+    //     denied state that the prompt can override.
     if (isToolCallEventType("read", event)) {
       const filePath = event.input.path;
-      const allowRead = config.filesystem?.allowRead ?? [];
+      const effectiveAllowRead = getEffectiveAllowRead(ctx.cwd);
 
-      if (!matchesPattern(filePath, allowRead)) {
-        return {
-          block: true,
-          reason: `Sandbox: read access denied for "${filePath}" (not in allowRead). To change this, edit allowRead in:\n  ${projectPath}\n  ${globalPath}`,
-        };
+      if (!matchesPattern(filePath, effectiveAllowRead)) {
+        const choice = await promptReadBlock(ctx, filePath);
+        if (choice === "abort") {
+          return {
+            block: true,
+            reason: `Sandbox: read access denied for "${filePath}"`,
+          };
+        }
+        await applyReadChoice(choice, filePath, ctx.cwd);
+        // Allowed — fall through, tool runs.
+        return;
       }
     }
 
-    // Path policy: write/edit — hard block if in denyWrite, otherwise allow if in allowWrite.
-    if (
-      isToolCallEventType("write", event) ||
-      isToolCallEventType("edit", event)
-    ) {
+    // Path policy: write/edit — prompt for allowWrite, hard-block for denyWrite.
+    if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
       const path = (event.input as { path: string }).path;
-      const allowWrite = config.filesystem?.allowWrite ?? [];
+      const allowWrite = getEffectiveAllowWrite(ctx.cwd);
       const denyWrite = config.filesystem?.denyWrite ?? [];
 
-      // denyWrite takes precedence — always block if matched.
+      if (allowWrite.length > 0 && !matchesPattern(path, allowWrite)) {
+        const choice = await promptWriteBlock(ctx, path);
+        if (choice === "abort") {
+          return {
+            block: true,
+            reason: `Sandbox: write access denied for "${path}" (not in allowWrite)`,
+          };
+        }
+        await applyWriteChoice(choice, path, ctx.cwd);
+
+        // denyWrite takes precedence — warn if it would still block.
+        if (matchesPattern(path, denyWrite)) {
+          ctx.ui.notify(
+            `⚠️ "${path}" was added to allowWrite, but it is also in denyWrite and will remain blocked.\n` +
+              `Check denyWrite in:\n  ${projectPath}\n  ${globalPath}`,
+            "warning",
+          );
+          return {
+            block: true,
+            reason: `Sandbox: write access denied for "${path}" (also in denyWrite)`,
+          };
+        }
+
+        // Allowed — fall through, tool runs.
+        return;
+      }
+
       if (matchesPattern(path, denyWrite)) {
         return {
           block: true,
           reason:
             `Sandbox: write access denied for "${path}" (in denyWrite). ` +
             `To change this, edit denyWrite in:\n  ${projectPath}\n  ${globalPath}`,
-        };
-      }
-
-      // If allowWrite is configured, block if not in the list.
-      if (allowWrite.length > 0 && !matchesPattern(path, allowWrite)) {
-        return {
-          block: true,
-          reason: `Sandbox: write access denied for "${path}" (not in allowWrite). To change this, edit allowWrite in:\n  ${projectPath}\n  ${globalPath}`,
         };
       }
     }
@@ -451,9 +744,7 @@ export default function (pi: ExtensionAPI) {
       const nodeMajor = parseInt(process.versions.node.split(".")[0], 10);
       if (nodeMajor >= 22) {
         const existing = process.env.NODE_OPTIONS ?? "";
-        process.env.NODE_OPTIONS = existing
-          ? `${existing} --use-env-proxy`
-          : "--use-env-proxy";
+        process.env.NODE_OPTIONS = existing ? `${existing} --use-env-proxy` : "--use-env-proxy";
       }
 
       sandboxEnabled = true;
@@ -463,10 +754,7 @@ export default function (pi: ExtensionAPI) {
       const writeCount = config.filesystem?.allowWrite?.length ?? 0;
       ctx.ui.setStatus(
         "sandbox",
-        ctx.ui.theme.fg(
-          "accent",
-          `🔒 Sandbox: ${networkCount} domains, ${writeCount} write paths`,
-        ),
+        ctx.ui.theme.fg("accent", `🔒 Sandbox: ${networkCount} domains, ${writeCount} write paths`),
       );
     } catch (err) {
       sandboxEnabled = false;
@@ -477,7 +765,7 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // ── session_shutdown ───────────────────────────────────────────────────────
+  // ── session_shutdown ────────────────────────────────────────────────────────
 
   pi.on("session_shutdown", async () => {
     if (sandboxInitialized) {
@@ -489,7 +777,7 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // ── /sandbox command ───────────────────────────────────────────────────────
+  // ── /sandbox command ────────────────────────────────────────────────────────
 
   pi.registerCommand("sandbox-enable", {
     description: "Enable the sandbox for this session",
@@ -576,8 +864,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       const config = loadConfig(ctx.cwd);
-      const globalPath = join(homedir(), ".pi", "agent", "sandbox.json");
-      const projectPath = join(ctx.cwd, ".pi", "sandbox.json");
+      const { globalPath, projectPath } = getConfigPaths(ctx.cwd);
 
       const lines = [
         "Sandbox Configuration",
@@ -587,17 +874,25 @@ export default function (pi: ExtensionAPI) {
         "Network (bash + !cmd):",
         `  Allowed domains: ${config.network?.allowedDomains?.join(", ") || "(none)"}`,
         `  Denied domains:  ${config.network?.deniedDomains?.join(", ") || "(none)"}`,
+        ...(sessionAllowedDomains.length > 0
+          ? [`  Session allowed: ${sessionAllowedDomains.join(", ")}`]
+          : []),
         "",
         "Filesystem (bash + read/write/edit tools):",
         `  Deny Read:   ${config.filesystem?.denyRead?.join(", ") || "(none)"}`,
         `  Allow Read:  ${config.filesystem?.allowRead?.join(", ") || "(none)"}`,
         `  Allow Write: ${config.filesystem?.allowWrite?.join(", ") || "(none)"}`,
         `  Deny Write:  ${config.filesystem?.denyWrite?.join(", ") || "(none)"}`,
+        ...(sessionAllowedReadPaths.length > 0
+          ? [`  Session read:  ${sessionAllowedReadPaths.join(", ")}`]
+          : []),
+        ...(sessionAllowedWritePaths.length > 0
+          ? [`  Session write: ${sessionAllowedWritePaths.join(", ")}`]
+          : []),
         "",
-        "Note: This config is STATIC — the agent cannot modify it at runtime.",
-        "Note: Read is blocked unless path is in allowRead.",
-        "Note: Write is blocked if path is in denyWrite (takes precedence).",
-        "Note: Write is blocked if allowWrite is set and path is not in it.",
+        "Note: ALL reads are prompted unless the path is already in allowRead.",
+        "Note: denyRead is not a hard-block — granting a prompt adds to allowRead, overriding denyRead.",
+        "Note: denyWrite takes PRECEDENCE over allowWrite and is never prompted.",
       ];
       ctx.ui.notify(lines.join("\n"), "info");
     },
