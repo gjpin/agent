@@ -84,14 +84,14 @@ provision:
 
     # Node / Go
     echo "export PATH=$PATH:${HOME}/.npm-global/bin:${HOME}/.go/bin" >> ~/.bash_profile
-    echo "export GOPATH=${HOME}/.go" >>~/.bash_profile
-    echo "export NPM_CONFIG_PREFIX=${HOME}/.npm-global" >>~/.bash_profile    
+    echo "export GOPATH=${HOME}/.go" >> ~/.bash_profile
+    echo "export NPM_CONFIG_PREFIX=${HOME}/.npm-global" >> ~/.bash_profile    
 
     # Install Pi Coding Agent
     export NPM_CONFIG_PREFIX=${HOME}/.npm-global
     export PI_CODING_AGENT_DIR=/mnt/.pi/agent
 
-    echo "export PI_CODING_AGENT_DIR=/mnt/.pi/agent" >>~/.bash_profile
+    echo "export PI_CODING_AGENT_DIR=/mnt/.pi/agent" >> ~/.bash_profile
 
     npm install -g @mariozechner/pi-coding-agent@0.62.0
     npm cache clean --force
