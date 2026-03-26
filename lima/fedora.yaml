@@ -20,10 +20,10 @@ ssh:
 
 mounts:
 - location: "~/src"
-  mountPoint: "${HOME}/src"
+  mountPoint: "/home/src"
   writable: true
 - location: "~/.pi"
-  mountPoint: "${HOME}/.pi"
+  mountPoint: "/home/.pi"
   writable: false
 
 containerd:
