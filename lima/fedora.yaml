@@ -20,11 +20,11 @@ ssh:
 
 mounts:
 - location: "~/src"
-  mountPoint: "/home/src"
+  mountPoint: "/mnt/src"
   writable: true
-- location: "~/.pi"
-  mountPoint: "/home/.pi"
-  writable: false
+- location: "~/.pi/agent"
+  mountPoint: "/mnt/.pi/agent"
+  writable: true
 
 containerd:
   system: false
@@ -89,6 +89,10 @@ provision:
 
     # Install Pi Coding Agent
     export NPM_CONFIG_PREFIX=${HOME}/.npm-global
+    export PI_CODING_AGENT_DIR=/mnt/.pi/agent
+
+    echo "export PI_CODING_AGENT_DIR=/mnt/.pi/agent" >>~/.bash_profile
+
     npm install -g @mariozechner/pi-coding-agent@0.62.0
     npm cache clean --force
 
