@@ -1,0 +1,105 @@
+# https://github.com/lima-vm/lima/blob/master/templates/_images/fedora-43.yaml
+# https://github.com/lima-vm/lima/blob/master/templates/_default/mounts.yaml
+# https://github.com/lima-vm/lima/blob/master/templates/podman.yaml
+
+minimumLimaVersion: 2.0.0
+
+images:
+- location: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2"
+  arch: "x86_64"
+  digest: "sha256:846574c8a97cd2d8dc1f231062d73107cc85cbbbda56335e264a46e3a6c8ab2f"
+- location: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/aarch64/images/Fedora-Cloud-Base-Generic-43-1.6.aarch64.qcow2"
+  arch: aarch64
+  digest: "sha256:66031aea9ec61e6d0d5bba12b9454e80ca94e8a79c913d37ded4c60311705b8b"
+
+ssh:
+  # ssh.overVsock does not work with Fedora 43 due to a SELinux policy issue
+  # https://github.com/lima-vm/lima/issues/4334#issuecomment-3561294333
+  # avc:  denied  { getattr } for  pid=1355 comm="sshd-auth" scontext=system_u:system_r:sshd_auth_t:s0-s0:c0.c1023 tcontext=system_u:system_r:sshd_t:s0-s0:c0.c1023 tclass=vsock_socket permissive=1
+  overVsock: false
+
+mounts:
+- location: "~/src"
+  mountPoint: "${HOME}/src"
+  writable: true
+- location: "~/.pi"
+  mountPoint: "${HOME}/.pi"
+  writable: false
+
+containerd:
+  system: false
+  user: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+
+    # Install Podman
+    command -v podman >/dev/null 2>&1 && test -e /etc/lima-podman && exit 0
+    dnf -y install --best podman && touch /etc/lima-podman
+
+    # Install common packages
+    dnf install -y \
+      bind-utils \
+      unrar \
+      xq \
+      jq \
+      yq \
+      fd-find \
+      fzf \
+      bc \
+      ripgrep \
+      unzip \
+      wget \
+      which
+
+    # Install development tools
+    dnf install -y \
+      nodejs24 \
+      pnpm \
+      golang \
+      python3 \
+      python3-pip \
+      uv \
+      ruff \
+      ty \
+      opentofu \
+      kubernetes1.35-client \
+      helm \
+      make \
+      gcc-c++ \
+      clang \
+      clang-tools-extra \
+      llvm
+    
+- mode: user
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+
+    # Enable podman's socket
+    systemctl --user enable --now podman.socket
+
+    # Node / Go
+    echo "export PATH=$PATH:${HOME}/.npm-global/bin:${HOME}/.go/bin" >> ~/.bash_profile
+    echo "export GOPATH=${HOME}/.go" >>~/.bash_profile
+    echo "export NPM_CONFIG_PREFIX=${HOME}/.npm-global" >>~/.bash_profile    
+
+    # Install Pi Coding Agent
+    export NPM_CONFIG_PREFIX=${HOME}/.npm-global
+    npm install -g @mariozechner/pi-coding-agent@0.62.0
+    npm cache clean --force
+
+probes:
+- script: |
+    #!/bin/bash
+    set -eux -o pipefail
+
+    # Check if Pi is installed
+    if ! timeout 300s bash -c 'until [ -f "$HOME/.npm-global/bin/pi" ]; do sleep 3; done'; then
+      echo >&2 "Pi Coding Agent is not installed yet"
+      exit 1
+    fi
+  hint: See "/var/log/cloud-init-output.log" in the guest
