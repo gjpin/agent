@@ -1,8 +1,15 @@
+# https://github.com/lima-vm/lima/blob/master/templates/default.yaml
 # https://github.com/lima-vm/lima/blob/master/templates/_images/fedora-43.yaml
 # https://github.com/lima-vm/lima/blob/master/templates/_default/mounts.yaml
 # https://github.com/lima-vm/lima/blob/master/templates/podman.yaml
 
 minimumLimaVersion: 2.0.0
+
+vmType: krunkit
+arch: aarch64
+cpus: 2
+memory: 4GiB
+disk: 100GiB
 
 images:
 - location: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2"
@@ -12,18 +19,15 @@ images:
   arch: aarch64
   digest: "sha256:66031aea9ec61e6d0d5bba12b9454e80ca94e8a79c913d37ded4c60311705b8b"
 
-ssh:
-  # ssh.overVsock does not work with Fedora 43 due to a SELinux policy issue
-  # https://github.com/lima-vm/lima/issues/4334#issuecomment-3561294333
-  # avc:  denied  { getattr } for  pid=1355 comm="sshd-auth" scontext=system_u:system_r:sshd_auth_t:s0-s0:c0.c1023 tcontext=system_u:system_r:sshd_t:s0-s0:c0.c1023 tclass=vsock_socket permissive=1
-  overVsock: false
-
 mounts:
 - location: "~/src"
-  mountPoint: "/mnt/src"
+  mountPoint: "{{.Home}}/src"
   writable: true
-- location: "~/.pi/agent"
-  mountPoint: "/mnt/.pi/agent"
+- location: "~/.config/opencode"
+  mountPoint: "{{.Home}}/.config/opencode"
+  writable: true
+- location: "~/.local/share/opencode"
+  mountPoint: "{{.Home}}/.local/share/opencode"
   writable: true
 
 containerd:
@@ -37,8 +41,7 @@ provision:
     set -eux -o pipefail
 
     # Install Podman
-    command -v podman >/dev/null 2>&1 && test -e /etc/lima-podman && exit 0
-    dnf -y install --best podman && touch /etc/lima-podman
+    dnf install -y podman
 
     # Install common packages
     dnf install -y \
@@ -82,18 +85,16 @@ provision:
     # Enable podman's socket
     systemctl --user enable --now podman.socket
 
-    # Node / Go
-    echo "export PATH=$PATH:${HOME}/.npm-global/bin:${HOME}/.go/bin" >> ~/.bash_profile
-    echo "export GOPATH=${HOME}/.go" >> ~/.bash_profile
-    echo "export NPM_CONFIG_PREFIX=${HOME}/.npm-global" >> ~/.bash_profile    
-
-    # Install Pi Coding Agent
+    # User env vars and PATH
+    tee ~/.bash_profile << 'EOF'
+    export PATH=$PATH:${HOME}/.npm-global/bin:${HOME}/.go/bin
+    export GOPATH=${HOME}/.go
     export NPM_CONFIG_PREFIX=${HOME}/.npm-global
-    export PI_CODING_AGENT_DIR=/mnt/.pi/agent
+    EOF
 
-    echo "export PI_CODING_AGENT_DIR=/mnt/.pi/agent" >> ~/.bash_profile
-
-    npm install -g @mariozechner/pi-coding-agent@0.62.0
+    # Install OpenCode
+    export NPM_CONFIG_PREFIX="${HOME}/.npm-global"
+    npm install -g opencode-ai
     npm cache clean --force
 
 probes:
@@ -101,9 +102,21 @@ probes:
     #!/bin/bash
     set -eux -o pipefail
 
-    # Check if Pi is installed
-    if ! timeout 300s bash -c 'until [ -f "$HOME/.npm-global/bin/pi" ]; do sleep 3; done'; then
-      echo >&2 "Pi Coding Agent is not installed yet"
+    # Check if OpenCode is installed
+    if ! timeout 300s bash -c 'until [ -f "$HOME/.npm-global/bin/opencode" ]; do sleep 3; done'; then
+      echo >&2 "OpenCode is not installed yet"
       exit 1
     fi
   hint: See "/var/log/cloud-init-output.log" in the guest
+
+portForwards:
+- guestSocket: "/run/user/{{.UID}}/podman/podman.sock"
+  hostSocket: "{{.Dir}}/sock/podman.sock"
+
+message: |
+  To run `podman` on the host (assumes podman-remote is installed), run the following commands:
+  ------
+  podman system connection add lima-{{.Name}} "unix://{{.Dir}}/sock/podman.sock"
+  podman system connection default lima-{{.Name}}
+  podman{{if eq .HostOS "linux"}} --remote{{end}} run quay.io/podman/hello
+  ------
