@@ -1,13 +1,28 @@
+# Dependencies
+```bash
+# Install krunkit
+brew tap slp/krun
+brew install krunkit
+
+# Install lima
+brew install lima
+```
+
 # Start VM
-limactl start fedora.yaml --name=fedora-agent --yes
-limactl shell fedora-agent
+```bash
+limactl start agent.yaml --name=agent --yes
+limactl shell agent
+```
 
 # Use Podman in host
 ```bash
-# Set Docker host path
+# Install system helper service (provides better Docker compatibility)
+sudo "$(brew --prefix)/opt/podman/bin/podman-mac-helper" install
+
+# Export podman sockets
 tee ${HOME}/.zshrc.d/podman << 'EOF'
-export CONTAINER_HOST=$(limactl list fedora-agent --format 'unix://{{.Dir}}/sock/podman.sock')
-export DOCKER_HOST=$(limactl list fedora-agent --format 'unix://{{.Dir}}/sock/podman.sock')
+export CONTAINER_HOST=$(limactl list agent --format 'unix://{{.Dir}}/sock/podman.sock')
+export DOCKER_HOST=$(limactl list agent --format 'unix://{{.Dir}}/sock/podman.sock')
 
 alias docker=podman
 EOF

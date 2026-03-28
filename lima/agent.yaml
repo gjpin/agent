@@ -114,4 +114,4 @@ portForwards:
   hostSocket: "{{.Dir}}/sock/podman.sock"
 
 message: |
-  To access the VM: limactl shell fedora-agent
+  To access the VM: limactl shell agent
