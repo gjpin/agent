@@ -7,7 +7,7 @@ minimumLimaVersion: 2.0.0
 
 vmType: krunkit
 arch: aarch64
-cpus: 2
+cpus: 8
 memory: 4GiB
 disk: 100GiB
 
@@ -56,7 +56,8 @@ provision:
       ripgrep \
       unzip \
       wget \
-      which
+      which \
+      htop
 
     # Install development tools
     dnf install -y \
@@ -103,7 +104,7 @@ probes:
     set -eux -o pipefail
 
     # Check if OpenCode is installed
-    if ! timeout 300s bash -c 'until [ -f "$HOME/.npm-global/bin/opencode" ]; do sleep 3; done'; then
+    if ! timeout 480s bash -c 'until [ -f "$HOME/.npm-global/bin/opencode" ]; do sleep 3; done'; then
       echo >&2 "OpenCode is not installed yet"
       exit 1
     fi
@@ -112,6 +113,3 @@ probes:
 portForwards:
 - guestSocket: "/run/user/{{.UID}}/podman/podman.sock"
   hostSocket: "{{.Dir}}/sock/podman.sock"
-
-message: |
-  To access the VM: limactl shell agent

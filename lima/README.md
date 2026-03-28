@@ -8,14 +8,31 @@ brew install krunkit
 brew install lima
 ```
 
-# Start VM
+# Create and (auto)start VM
 ```bash
-limactl start agent.yaml --name=agent --yes
+# Create VM
+limactl create agent.yaml --name=agent --yes
+
+# Autostart VM
+limactl start-at-login agent
+
+# Start VM
+limactl start agent
+
+# Access VM
 limactl shell agent
+
+# OpenCode alias
+tee ${HOME}/.zshrc.d/opencode << 'EOF'
+alias opencode="limactl shell agent opencode"
+EOF
 ```
 
 # Use Podman in host
 ```bash
+# Install Podman
+brew install podman
+
 # Install system helper service (provides better Docker compatibility)
 sudo "$(brew --prefix)/opt/podman/bin/podman-mac-helper" install
 
