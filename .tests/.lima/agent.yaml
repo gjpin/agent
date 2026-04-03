@@ -5,10 +5,8 @@
 
 minimumLimaVersion: 2.0.0
 
-vmType: krunkit
-arch: aarch64
-cpus: 8
-memory: 4GiB
+cpus: 4
+memory: 2GiB
 disk: 100GiB
 
 images:
