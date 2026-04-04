@@ -1,7 +1,7 @@
 # How to
 ```bash
 # Build image
-container build --build-arg PI_CODING_AGENT_VERSION=0.64.0 -t agent .
+container build --build-arg PI_CODING_AGENT_VERSION=0.65.0 -t agent .
 
 # Create .pi directory
 mkdir -p "${HOME}/.pi/agent"

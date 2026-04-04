@@ -31,9 +31,9 @@ RUN useradd -m -s /bin/bash -G wheel agent && \
 
 # User environment
 USER agent
-ENV HOME=/home/agent
 
-ENV NPM_CONFIG_PREFIX=/home/agent/.npm-global \
+ENV HOME=/home/agent \
+  NPM_CONFIG_PREFIX=/home/agent/.npm-global \
   GOPATH=/home/agent/.go \
   PATH=$PATH:/home/agent/.npm-global/bin:/home/agent/.go/bin
 
