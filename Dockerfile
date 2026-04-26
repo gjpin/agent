@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/ubi:10.1
+FROM quay.io/fedora/fedora:44
 
 ARG PI_CODING_AGENT_VERSION
 RUN test -n "$PI_CODING_AGENT_VERSION" || (echo "ERROR: PI_CODING_AGENT_VERSION build arg is required" && exit 1)

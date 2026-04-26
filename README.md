@@ -1,7 +1,7 @@
 # How to
 ```bash
 # Build image
-container build --build-arg PI_CODING_AGENT_VERSION=0.65.0 -t agent .
+podman build --build-arg PI_CODING_AGENT_VERSION=0.70.2 -t agent .
 
 # Create .pi directory
 mkdir -p "${HOME}/.pi/agent"
@@ -24,13 +24,15 @@ export OPENROUTER_API_KEY=
 export OPENCODE_API_KEY=
 
 # Pi alias
-alias pi='container run --rm -it \\
+alias pi='podman run --rm -it \\
   --name pi \\
   --user agent \\
   -v "\${HOME}/.pi:/home/agent/.pi" \\
   -v "\$(pwd):/workspace" \\
   -w /workspace \\
   -e BRAVE_API_KEY="$BRAVE_API_KEY" \\
+  -e LINKUP_API_KEY="$LINKUP_API_KEY" \\
+  -e EXA_API_KEY="$EXA_API_KEY" \\
   -e OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \\
   -e OPENCODE_API_KEY="$OPENCODE_API_KEY" \\
   -e MISTRAL_API_KEY="$MISTRAL_API_KEY" \\
