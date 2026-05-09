@@ -39,7 +39,7 @@ ENV HOME=/home/agent \
 
 # Install npm packages
 RUN npm install -g pnpm && \
-  npm install -g @mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION} && \
+  npm install -g @earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION} && \
   npm cache clean --force
 
 ENTRYPOINT ["pi"]
