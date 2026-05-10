@@ -24,18 +24,36 @@ export OPENROUTER_API_KEY=
 export OPENCODE_API_KEY=
 
 # Pi alias
-alias pi='podman run --rm -it \
-  --name pi \
-  --user agent \
-  -v "${HOME}/.pi:/home/agent/.pi" \
-  -v "$(pwd):/workspace" \
-  -w /workspace \
-  -e BRAVE_API_KEY="${BRAVE_API_KEY}" \
-  -e LINKUP_API_KEY="${LINKUP_API_KEY}" \
-  -e EXA_API_KEY="${EXA_API_KEY}" \
-  -e DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY}" \
-  -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY}" \
-  -e OPENCODE_API_KEY="${OPENCODE_API_KEY}" \
-  agent'
+pi() {
+  local rel
+  local workdir
+
+  rel=$(realpath --relative-to="${HOME}/src" "$PWD")
+  workdir="/workspace/$rel"
+
+  if podman container exists pi; then
+    podman start pi >/dev/null
+
+    podman exec \
+      -it \
+      -w "$workdir" \
+      pi pi
+  else
+    podman run -it \
+      --name pi \
+      --user agent \
+      -v "${HOME}/.pi:/home/agent/.pi" \
+      -v "${HOME}/.agents:/home/agent/.agents" \
+      -v "${HOME}/src:/workspace" \
+      -w "$workdir" \
+      -e BRAVE_API_KEY="${BRAVE_API_KEY}" \
+      -e LINKUP_API_KEY="${LINKUP_API_KEY}" \
+      -e EXA_API_KEY="${EXA_API_KEY}" \
+      -e DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY}" \
+      -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY}" \
+      -e OPENCODE_API_KEY="${OPENCODE_API_KEY}" \
+      agent
+  fi
+}
 EOF
 ```
