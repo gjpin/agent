@@ -1,0 +1,11 @@
+
+{
+  "defaultProvider": "deepseek",
+  "defaultModel": "deepseek-v4-pro",
+  "defaultThinkingLevel": "high",
+  "packages": [
+    "npm:@feniix/pi-exa",
+    "npm:pi-ask-user",
+    "npm:pi-btw"
+  ]
+}

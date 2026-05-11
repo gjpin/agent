@@ -10,7 +10,7 @@ mkdir -p "${HOME}/.pi/agent"
 cp -R agent/* "${HOME}/.pi/agent"
 ```
 
-# Alias
+# Exec Pi
 ```bash
 tee ${HOME}/.zshrc.d/pi << 'EOF'
 # Web search skill
@@ -42,9 +42,15 @@ pi() {
     podman run -it \
       --name pi \
       --user agent \
-      -v "${HOME}/.pi:/home/agent/.pi" \
-      -v "${HOME}/.agents:/home/agent/.agents" \
-      -v "${HOME}/src:/workspace" \
+      --userns keep-id \
+      --security-opt no-new-privileges \
+      --pids-limit 512 \
+      --tmpfs /tmp:rw,nosuid,size=512m \
+      --cap-drop ALL \
+      --security-opt label=type:container_t \
+      -v "${HOME}/.pi:/home/agent/.pi:Z" \
+      -v "${HOME}/.agents:/home/agent/.agents:Z" \
+      -v "${HOME}/src:/workspace:Z" \
       -w "$workdir" \
       -e BRAVE_API_KEY="${BRAVE_API_KEY}" \
       -e LINKUP_API_KEY="${LINKUP_API_KEY}" \
